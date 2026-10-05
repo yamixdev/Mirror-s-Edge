@@ -17,6 +17,8 @@
             GameObject _1pPlayer, _3pPlayer;
             Transform[] _1pBones, _3pBones;
             SkinnedMeshRenderer _1pLower;
+            SkinnedMeshRenderer _1pUpper, _3pMesh;
+            PlayerBodyVisibility _bodyVisibility;
             IAnimNodeEditorWindow _window;
             UnityEngine.Camera _unityCam;
             Vector3 _lastPos;
@@ -40,7 +42,14 @@
                     Asset.UScriptToUnity.TryGetValue( Pawn.Mesh1pLowerBody.SkeletalMesh, out var unityObjectLower );
                     
                     var fpUpper = (SkinnedMeshRenderer) fpMesh;
+                    _1pUpper = fpUpper;
                     _1pLower = (SkinnedMeshRenderer)unityObjectLower;
+
+                    // Bones are driven by the converted animation system, outside Unity's Animator.
+                    // Recompute bounds from the current pose so raised hands are not culled
+                    // using the imported standing pose when looking at a ledge.
+                    fpUpper.updateWhenOffscreen = true;
+                    _1pLower.updateWhenOffscreen = true;
                     
                     _1pPlayer = fpUpper.transform.parent.gameObject;
                     var clips = Resources.LoadAll<AnimationClip>( "AS_C1P_Unarmed" );
@@ -118,8 +127,8 @@
 	                var nameToBones = _3pPlayer.GetComponentsInChildren<Transform>().Where( x => hs.Contains(x.name) ).ToDictionary( t => (name)t.name );
 	                _3pBones = Pawn.Mesh3p.AnimSets[0].TrackBoneNames.Select( n => nameToBones[ n ] ).ToArray();
 	                
-                    // Disable rendering for now, let's focus on 1P first
-                    ( (SkinnedMeshRenderer)tracker ).enabled = false;
+                    _3pMesh = (SkinnedMeshRenderer)tracker;
+                    _3pMesh.updateWhenOffscreen = true;
                     
                     var uol = _3pPlayer.AddComponent<UnrealObjectLink>();
                     uol.Object = Pawn;
@@ -177,6 +186,9 @@
                 
                 // Skeleton has a base offset inside of their owner, just makes sure it's taken care of here
                 _1pBones[ 0 ].position = Pawn.Mesh1p.GetBoneLocation(_1pBones[ 0 ].name).ToUnityPos();
+                // Sampling the imported 3P clips leaves a 2.54 scale on the Unity root.
+                // The loop above skips that root, so restore the native pose's scale explicitly.
+                _3pBones[ 0 ].localScale = Vector3.one * Pawn.Mesh3p.LocalAtoms[0].Scale;
                 _3pBones[ 0 ].position = Pawn.Mesh3p.GetBoneLocation(_3pBones[ 0 ].name).ToUnityPos();
                 
                 if( _unityCam == null )
@@ -202,12 +214,21 @@
                     var camPov = cam.CameraCache.POV;
                     _unityCam.transform.SetPositionAndRotation( camPov.Location.ToUnityPos(), camPov.Rotation.ToUnityQuat() );
                 }
+
+                if (_bodyVisibility == null)
+                {
+                    _bodyVisibility = _3pPlayer.AddComponent<PlayerBodyVisibility>();
+                    _bodyVisibility.Configure(_1pUpper, _1pLower, _3pMesh, _unityCam);
+                }
+                else
+                    _bodyVisibility.SetOwnerCamera(_unityCam);
             }
 
 
 
             public void OnDestroy()
             {
+                if (_bodyVisibility) _bodyVisibility.enabled = false;
                 _window?.Close();
                 _window = null;
                 PrintUnimplementedDebug();
@@ -272,12 +293,21 @@
 		            sequence._unityClipTarget = animator;
 		            sequence._unityClip = clip;
 					
-		            clip.wrapMode = WrapMode.Default;
-		            clip.EvaluateArbitrarily( 0f, animator );
-		            sequence._unityPoses.start = bones.Select( bone => new AnimNode.BoneAtom( bone.localRotation.ToUnrealAnim(), bone.localPosition.ToUnrealAnim(), 1f ) ).ToArray();
-					
-		            clip.EvaluateArbitrarily( 0f, animator );
-		            sequence._unityPoses.end = bones.Select( bone => new AnimNode.BoneAtom( bone.localRotation.ToUnrealAnim(), bone.localPosition.ToUnrealAnim(), 1f ) ).ToArray();
+		            var wrapMode = clip.wrapMode;
+		            try
+		            {
+			            clip.wrapMode = WrapMode.ClampForever;
+			            clip.EvaluateArbitrarily( 0f, animator );
+			            sequence._unityPoses.start = bones.Select( bone => new AnimNode.BoneAtom( bone.localRotation.ToUnrealAnim(), bone.localPosition.ToUnrealAnim(), 1f ) ).ToArray();
+			            // Playables can wrap imported looping clips at their exact end time.
+			            // Sample with ClampForever to capture the final key for non-looping requests.
+			            clip.SampleAnimation( animator.gameObject, clip.length );
+			            sequence._unityPoses.end = bones.Select( bone => new AnimNode.BoneAtom( bone.localRotation.ToUnrealAnim(), bone.localPosition.ToUnrealAnim(), 1f ) ).ToArray();
+		            }
+		            finally
+		            {
+			            clip.wrapMode = wrapMode;
+		            }
 	            }
             }
 

@@ -390,6 +390,9 @@
 							if( SourceActor is TdPlayerPawn == false ) throw new Exception( "cannot handle non player character as listeners source for velocity" );
 							speedVal = SourceActor.Velocity.Size();
 							break;
+						case TdSoundNodeVelocity.SpeedType.SPEEDTYPE_Custom:
+							speedVal = SourceActor is TdPawn pawn ? pawn.CustomSoundInput : vel.MinSpeed;
+							break;
 						case TdSoundNodeVelocity.SpeedType.SPEEDTYPE_Relative:
 							NativeMarkers.MarkUnimplemented();
 							goto SKIP;

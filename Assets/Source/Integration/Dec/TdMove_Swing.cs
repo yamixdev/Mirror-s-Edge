@@ -43,7 +43,10 @@ public partial class TdMove_Swing
   
     v3 = this.Volume;
     if(v3 != default)
-      result = v3.Encompasses(new Vector(this.SwingLocation.X + (float)(this.BarDirection.X * a2), this.SwingLocation.Y + (float)(this.BarDirection.Y * a2), this.SwingLocation.Z + (float)(this.BarDirection.Z * a2)));
+    {
+      var location = this.SwingLocation + this.BarDirection * a2;
+      result = (v3.UnityClosestGrip(location) - location).Size() < 1f && v3.Encompasses(location);
+    }
     else
       result = default;
     return result != default;

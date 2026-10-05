@@ -30,6 +30,7 @@
 
 		public static void SampleInput( TdPlayerInput uInput, TdPlayerController controller, float dt )
         {
+	        uInput.UnityJumpHeld = UnityEngine.Input.GetKey(KeyCode.Space);
 	        uInput.bEnableMouseSmoothing = false;
 	        
 	        if( axisFields == null )
@@ -130,6 +131,9 @@
 	            uInput.Crouch();
             if( UnityEngine.Input.GetKeyUp( KeyCode.LeftShift ) )
 	            uInput.StopCrouch();
+            // Unity can lose a key-up when focus moves from Game to Scene view.
+            if( !UnityEngine.Input.GetKey( KeyCode.LeftShift ) && controller.bDuck != 0 )
+                uInput.StopCrouch();
 
             // (Name:"LeftShift",Command:"Walking",Control:false,Shift:false,Alt:false),
             // (Name:"Walking",Command:"Button bRun",Control:false,Shift:false,Alt:false),

@@ -137,7 +137,7 @@ public partial class TdMove_GrabPullUp : TdPhysicsMove/*
 			PawnOwner.SetAnimationMovementState(TdPawn.EMovement.MOVE_None/*0*/, 0.20f);
 		}
 		bDisableFaceRotation = true;
-		PawnOwner.UseRootMotion(true);
+		BeginUnityPullUp();
 		ResetCameraLook(DisableLookTime);
 		PawnOwner.Mesh.bUseLegRotationHack1 = true;
 		PawnOwner.UpdateLegToWorldMatrix(((Rotator)(-PawnOwner.MoveNormal)).Yaw);
@@ -162,6 +162,7 @@ public partial class TdMove_GrabPullUp : TdPhysicsMove/*
 	
 	public override /*simulated function */void StopMove()
 	{
+		EndUnityPullUp();
 		base.StopMove();
 		EnableCollision();
 		PawnOwner.DisableHandsWorldIK(default(float?));
@@ -174,10 +175,7 @@ public partial class TdMove_GrabPullUp : TdPhysicsMove/*
 	
 	public override /*simulated function */void OnCustomAnimEnd(AnimNodeSequence SeqNode, float PlayedTime, float ExcessTime)
 	{
-		PawnOwner.UseRootMotion(false);
-		PawnOwner.Acceleration = Normal(PawnOwner.Velocity);
-		PawnOwner.SetPhysics(Actor.EPhysics.PHYS_Walking/*1*/);
-		PawnOwner.SetMove(((TdPawn.EMovement)((((int)GrabPullUpType) == ((int)TdMove_GrabPullUp.EGrabPullUpType.GPUT_IntoCrouch/*1*/)) ? 15 : 1)), default(bool?), default(bool?));
+		UnityPullUpAnimationFinished();
 	}
 	
 	public override /*simulated function */int HandleDeath(int Damage)

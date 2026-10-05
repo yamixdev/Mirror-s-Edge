@@ -88,6 +88,7 @@
 
         void OnDestroy()
         {
+            LowFrequencyUpdate.Clear();
             var actors = WorldInfo._allActors;
             foreach( var actor in actors )
             {
@@ -100,14 +101,29 @@
 
         
 
+        public void RemoveLowFrequencyUpdate(Action action)
+        {
+            int index = LowFrequencyUpdate.IndexOf(action);
+            if(index < 0)
+                return;
+            LowFrequencyUpdate.RemoveAt(index);
+            if(index < _lowFreqIndx)
+                _lowFreqIndx--;
+            if(_lowFreqIndx >= LowFrequencyUpdate.Count)
+                _lowFreqIndx = 0;
+        }
+
         void Update()
         {
             // Amount of iterations is at least one
             var actionsThisFrame = Math.Max( LowFrequencyUpdate.Count / MaxFramesForLowFreqUpdate, 1 );
             actionsThisFrame = Math.Min( LowFrequencyUpdate.Count, actionsThisFrame);
-            for( int count = 0; count < actionsThisFrame; count++, _lowFreqIndx = (_lowFreqIndx+1) % LowFrequencyUpdate.Count )
+            for( int count = 0; count < actionsThisFrame && LowFrequencyUpdate.Count > 0; count++ )
             {
-                LowFrequencyUpdate[_lowFreqIndx]();
+                if(_lowFreqIndx >= LowFrequencyUpdate.Count)
+                    _lowFreqIndx = 0;
+                var action = LowFrequencyUpdate[_lowFreqIndx++];
+                action();
             }
             
             

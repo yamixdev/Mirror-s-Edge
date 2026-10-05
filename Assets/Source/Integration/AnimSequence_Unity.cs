@@ -239,26 +239,31 @@ namespace MEdge.Engine
 	public class AnimationCleanup : MonoBehaviour
 	{
 		static readonly Dictionary<Animator, (PlayableGraph graph, AnimationPlayableOutput output, Dictionary<AnimationClip, AnimationClipPlayable> clips)> AllGraphs = new();
-		readonly List<PlayableGraph> _graphs = new();
+		readonly List<(Animator animator, PlayableGraph graph)> _graphs = new();
 
 		void OnDestroy()
 		{
-			for (int i = 0; i < _graphs.Count; i++)
-				_graphs[i].Destroy();
+			foreach (var (animator, graph) in _graphs)
+			{
+				if (AllGraphs.TryGetValue(animator, out var cached) && cached.graph.Equals(graph))
+					AllGraphs.Remove(animator);
+				if (graph.IsValid())
+					graph.Destroy();
+			}
 			_graphs.Clear();
 		}
 
 		public static (PlayableGraph graph, AnimationPlayableOutput output, Dictionary<AnimationClip, AnimationClipPlayable> clips) GetGraph(Animator animator)
 		{
-			if (!AllGraphs.TryGetValue(animator, out (PlayableGraph, AnimationPlayableOutput, Dictionary<AnimationClip, AnimationClipPlayable>) graphData))
+			if (!AllGraphs.TryGetValue(animator, out (PlayableGraph graph, AnimationPlayableOutput output, Dictionary<AnimationClip, AnimationClipPlayable> clips) graphData) || !graphData.graph.IsValid())
 			{
 				if (!animator.gameObject.TryGetComponent(out AnimationCleanup cleaner))
 					cleaner = animator.gameObject.AddComponent<AnimationCleanup>();
 				PlayableGraph graph = PlayableGraph.Create();
-				cleaner._graphs.Add(graph);
+				cleaner._graphs.Add((animator, graph));
 				graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
 				graphData = (graph, AnimationPlayableOutput.Create(graph, "Routine Sample", animator), new Dictionary<AnimationClip, AnimationClipPlayable>());
-				AllGraphs.Add(animator, graphData);
+				AllGraphs[animator] = graphData;
 			}
 
 			return graphData;

@@ -3913,15 +3913,14 @@ public partial class TdPawn : GamePawn/*
 	
 	public virtual /*function */void NotifyJump()
 	{
-		if(!IsTimerActive("CalculateJumpSpeed", default(Object)))
-		{
-			SetTimer(5.0f + (FRand() * 10.0f), false, "CalculateJumpSpeed", default(Object));
-		}
+		// The converted callback killed the pawn after a random delay. A parkour
+		// jump must not schedule death; cancel any callback already queued.
+		ClearTimer("CalculateJumpSpeed", default(Object));
 	}
 	
 	public virtual /*function */void CalculateJumpSpeed()
 	{
-		Suicide();
+		// Keep the legacy timer entry point callable, but harmless if it fires.
 	}
 	
 	public virtual /*function */void Interacted()

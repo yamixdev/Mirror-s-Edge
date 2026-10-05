@@ -16,6 +16,7 @@
 	public abstract class VolumeProxy<T> : VolumeProxy where T : Volume, new()
 	{
 		T _unrealInstance;
+		UWorld _registeredWorld;
 
 
 
@@ -26,12 +27,13 @@
 				if( _unrealInstance != null )
 					return _unrealInstance;
 				
-				UWorld.Instance.LowFrequencyUpdate.Add( SyncVolumeOuter );
+				_registeredWorld = UWorld.Instance;
 				_unrealInstance = new T
 				{
 					Name = $"{typeof(T).Name}_{gameObject.name}",
 				};
 				SyncVolumeOuter();
+				_registeredWorld.LowFrequencyUpdate.Add( SyncVolumeOuter );
 				return _unrealInstance;
 			}
 		}
@@ -50,5 +52,13 @@
 
 
 		protected abstract void SyncVolume( T volume );
+
+		protected virtual void OnDestroy()
+		{
+			// Use the world that owns the callback; Instance could create a world during shutdown.
+			if( _registeredWorld != null )
+				_registeredWorld.RemoveLowFrequencyUpdate( SyncVolumeOuter );
+			_registeredWorld = null;
+		}
 	}
 }

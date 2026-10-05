@@ -214,6 +214,10 @@ namespace MEdge.Engine
 						return seq;
 				}
 			}
+			// The 1P import has JumpAir, but the 3P import only has JumpSlow.
+			// Resolve this known missing counterpart for both tree and custom nodes.
+			if(AnimSeqName == (name)"JumpAir")
+				return FindAnimSequence("JumpSlow");
 			return default;
 		}
 	

@@ -12,3 +12,24 @@ Build/
 *.sln
 *.vs
 *.vsconfig
+
+# Unity and editor caches
+.vs/
+.vscode/
+[Bb]uilds/
+[Oo]bj/
+[Tt]emp/
+[Ll]ibrary/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+MemoryCaptures/
+Recordings/
+*.log
+*.tmp
+*.bak
+
+# Local analysis and test output
+.codebase-memory/
+Evidence/
+docs/reviews/
+docs/superpowers/

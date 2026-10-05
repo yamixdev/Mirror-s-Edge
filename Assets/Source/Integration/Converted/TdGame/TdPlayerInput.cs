@@ -40,10 +40,7 @@ public partial class TdPlayerInput : PlayerInput/* within TdPlayerController*//*
 	
 	public virtual /*exec function */void StopCrouch()
 	{
-		if(Outer.IsButtonInputIgnored())
-		{
-			return;
-		}
+		// Releases must clear held state even while a parkour move ignores input.
 		Outer.bDuck = (byte)0;
 	}
 	

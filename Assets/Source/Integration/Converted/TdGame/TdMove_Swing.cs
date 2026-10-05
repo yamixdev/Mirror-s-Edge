@@ -69,7 +69,11 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 		{
 			return false;
 		}
-		GripToPawn = PawnOwner.Location - Volume.Location;
+		if(Volume == default || PawnOwner.MovementState == TdPawn.EMovement.MOVE_Swing)
+			return false;
+		GripToPawn = PawnOwner.Location - Volume.UnityClosestGrip(PawnOwner.Location);
+		if(Volume.UnityGripHalfLength > 0f && (Volume.UnityGripHalfLength < 23f || VSize(GripToPawn) > SwingPendulumLength + 45f))
+			return false;
 		if((Dot(Normal(GripToPawn), ((Vector)(PawnOwner.Rotation)))) >= -0.30f)
 		{
 			return false;
@@ -88,7 +92,9 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 	public override /*simulated function */void StartReplicatedMove()
 	{
 		EnableSwingControl();
-		PawnOwner.SetRootOffset(vect(0.0f, -50.0f, -32.0f), AnimBlendTime, SkelControlBase.EBoneControlSpace.BCS_BoneSpace/*4*/);
+		// The imported torso needs 10cm more reach at the forward arc.
+		// This is a visual root offset; the physical pendulum stays 120cm.
+		PawnOwner.SetRootOffset(vect(0.0f, -60.0f, -32.0f), AnimBlendTime, SkelControlBase.EBoneControlSpace.BCS_BoneSpace/*4*/);
 	}
 	
 	public override /*simulated function */void StartMove()
@@ -97,9 +103,9 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 	
 		base.StartMove();
 		PawnOwner.SetWeaponAnimState(TdPawn.EWeaponAnimState.WS_Unarmed/*0*/);
-		PawnOwner.SetRootOffset(vect(0.0f, -50.0f, -32.0f), AnimBlendTime, SkelControlBase.EBoneControlSpace.BCS_BoneSpace/*4*/);
+		PawnOwner.SetRootOffset(vect(0.0f, -60.0f, -32.0f), AnimBlendTime, SkelControlBase.EBoneControlSpace.BCS_BoneSpace/*4*/);
 		Volume.GetAxes(Volume.Rotation, ref/*probably?*/ VolumeX, ref/*probably?*/ VolumeY, ref/*probably?*/ VolumeZ);
-		PointDistToLine(PawnOwner.Location, VolumeY, Volume.Location, ref/*probably?*/ SwingLocation);
+		SwingLocation = Volume.UnityClosestGrip(PawnOwner.Location);
 		ToGrip = Normal(Volume.Location - PawnOwner.Location);
 		if((Dot(ToGrip, ((Vector)(Volume.Rotation)))) >= 0.0f)
 		{
@@ -112,8 +118,10 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 			SwingDirection = -VolumeX;
 		}
 		SwingAngle = GetPawnAngle(PawnOwner.Location);
-		SwingAngle = ((float)(Clamp(((int)(SwingAngle)), ((int)(-1.20f)), ((int)(-0.70f)))));
-		SwingVelocity = MaxSwingVelocity * FMin(1.0f, VSize2D(PawnOwner.Velocity) / 500.0f);
+		SwingAngle = FClamp(SwingAngle, -1.20f, -0.70f);
+		// Convert incoming tangential speed into angular momentum at the grip.
+		var tangent = SwingDirection * Cos(SwingAngle) + vect(0f, 0f, Sin(SwingAngle));
+		SwingVelocity = FClamp(Dot(PawnOwner.Velocity, tangent) / SwingPendulumLength, -MaxSwingVelocity, MaxSwingVelocity);
 		SetPreciseRotation(((Rotator)(SwingDirection)), AnimBlendTime);
 		bIsInterpolatingInto = true;
 		SetPawnRotation(SwingAngle);
@@ -139,6 +147,8 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 		base.StopMove();
 		DisableSwingControl();
 		StopSwingSound();
+		UnityResetHandGrips();
+		PawnOwner.DisableHandsWorldIK(0.10f);
 		PawnOwner.SetRootOffset(vect(0.0f, 0.0f, 0.0f), 0.10f, default(SkelControlBase.EBoneControlSpace));
 		bIsShimmying = false;
 		bIsTurning = false;
@@ -304,6 +314,14 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 		/*local */Object.Vector Offset = default;
 	
 		PawnOwner.CustomSoundInput = 500.0f * Abs(SwingVelocity);
+		// Grab impact is a one-shot animation notify; the movement loop fades
+		// to silence when hanging still instead of repeating idle grip samples.
+		SwingSoundComponent?.AdjustVolume(0.20f, FClamp(Abs(SwingVelocity) / 0.25f, 0f, 1f));
+		if(Volume != default)
+		{
+			SwingLocation = Volume.UnityClosestGrip(SwingLocation);
+			UnityUpdateHandGrips();
+		}
 		UnAngle = ((int)((2.0f * (RadAngle / 3.1415930f)) * 16384.0f));
 		Offset.X = Sin(RadAngle) * 94.0f;
 		Offset.Z = (1.0f - Cos(RadAngle)) * 94.0f;
@@ -347,9 +365,10 @@ public partial class TdMove_Swing : TdPhysicsMove/*
 		SwingSound = LoadAsset<SoundCue>("A_Character_Female_01.Swing.Swing")/*Ref SoundCue'A_Character_Female_01.Swing.Swing'*/;
 		PawnPhysics = Actor.EPhysics.PHYS_Flying;
 		ControllerState = (name)"PlayerGrabbing";
-		bCheckForGrab = true;
-		bCheckForVaultOver = true;
-		bCheckForWallClimb = true;
+		// While attached, only explicit swing actions may release the grip.
+		bCheckForGrab = false;
+		bCheckForVaultOver = false;
+		bCheckForWallClimb = false;
 		bShouldHolsterWeapon = true;
 		AiAimPenalties = new TdMove.AIAimingModifierSettings
 		{

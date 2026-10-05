@@ -231,7 +231,10 @@ public virtual void AdvanceBy(float MoveDelta, float DeltaSeconds, bool bFireNot
 	CachedBoneAtoms.Reset();
 
 	// This node should try to fire notifies
-	if( bFireNotifies && MoveDelta > 0f )
+	// SwingStrafe is intentionally played backwards for leftward movement.
+	// Preserve legacy reverse behaviour for other clips, whose gameplay notifies
+	// may not be reversible.
+	if( bFireNotifies && (MoveDelta > 0f || AnimSeq.SequenceName == "SwingStrafe") )
 	{
 		// Can fire notifies if part of a synchronization group and node is relevant.
 		// then bFireNotifies tells us if we should actually fire notifies or not.
@@ -243,7 +246,8 @@ public virtual void AdvanceBy(float MoveDelta, float DeltaSeconds, bool bFireNot
 		// Before we actually advance the time, issue any notifies (if desired).
 		if( !bNoNotifies && (bCanFireNotifyGroup || bCanFireNotifyNoGroup) )
 		{
-			IssueNotifies(MoveDelta);
+			if (MoveDelta < 0f) IssueReverseNotifies(MoveDelta);
+			else IssueNotifies(MoveDelta);
 
 			// If a notification cleared the animation, stop here, don't crash.
 			if( !AnimSeq )
@@ -842,6 +846,34 @@ public virtual void ExtractRootMotion(AnimSequence InAnimSeq, ref int TrackIndex
 			CurrentFrameAtom.Translation = MeshToCompTM.InverseTransformNormal(CompCurrentFrameTranslation);
 		}
 	}				
+}
+
+void IssueReverseNotifies(float delta)
+{
+	var sequence = AnimSeq;
+	if (!sequence || sequence.SequenceLength <= 0f) return;
+	float from = CurrentTime, remaining = -delta;
+	bIsIssuingNotifies = true;
+	try
+	{
+		while (remaining > 0f)
+		{
+			float step = FMin(remaining, from);
+			float to = from - step;
+			for (int i = sequence.Notifies.Num() - 1; i >= 0; i--)
+			{
+				var notify = sequence.Notifies[i];
+				// [to, from): a boundary is emitted once, including a frame
+				// landing exactly on it. Traversal order follows reverse playback.
+				if (notify.Time < from && notify.Time >= to)
+					notify.Notify?.Notify(this);
+			}
+			remaining -= step;
+			if (!bLooping || remaining <= 0f) break;
+			from = sequence.SequenceLength;
+		}
+	}
+	finally { bIsIssuingNotifies = false; }
 }
 
 public virtual void IssueNotifies(float DeltaTime)

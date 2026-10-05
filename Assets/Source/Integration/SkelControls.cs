@@ -241,6 +241,15 @@
 
 	public partial class SkelControlLimb
 	{
+		// Opt-in for a swing grip only. Resolve the palm from this frame's local
+		// animation before IK, so yesterday's solved wrist cannot move today's goal.
+		public name UnityPalmBone;
+		public bool UnityPreserveAnimatedTwist;
+		public bool UnityFollowAnimatedGrip;
+		public FVector UnityGripAxis;
+		public float UnityGripHalfLength;
+		public FVector UnityAnimatedPalm;
+
 		public override void GetAffectedBones(INT BoneIndex, SkeletalMeshComponent SkelComp, ref array<INT> OutBoneIndices)
 		{
 			check(OutBoneIndices.Num() == 0);
@@ -305,6 +314,35 @@
 			// Get desired position of effector.
 			FMatrix			DesiredComponentToFrame	= SkelComp.CalcComponentToFrameMatrix(BoneIndex, EffectorLocationSpace, EffectorSpaceBoneName);
 			FVector			DesiredPos				= DesiredComponentToFrame.InverseTransformFVector(ref EffectorLocation);
+			if (UnityPalmBone != NAME_None)
+			{
+				int palmIndex = SkelComp.MatchRefBone(UnityPalmBone);
+				FMatrix palmRelative = FMatrix.Identity;
+				int cursor = palmIndex;
+				while (cursor > BoneIndex)
+				{
+					FMatrix local = default;
+					SkelComp.LocalAtoms[cursor].ToTransform(ref local);
+					palmRelative = palmRelative * local;
+					cursor = SkelComp.SkeletalMesh.RefSkeleton[cursor].ParentIndex;
+				}
+				if (cursor == BoneIndex)
+				{
+					var palmOffset = SkelComp.SpaceBases[BoneIndex].TransformNormal(palmRelative.GetOrigin());
+					var animatedPalm = InitialEndPos + palmOffset;
+					UnityAnimatedPalm = SkelComp.LocalToWorld.TransformFVector(animatedPalm);
+					if (UnityFollowAnimatedGrip)
+					{
+						// The clip transfers the hands separately. Keep its lateral motion;
+						// correct contact against the finite bar instead of dragging both
+						// hands along at the same fixed distance from the moving torso.
+						var axis = SkelComp.LocalToWorld.InverseTransformNormal(UnityGripAxis).SafeNormal();
+						float along = (animatedPalm - DesiredPos) | axis;
+						DesiredPos += axis * FClamp(along, -UnityGripHalfLength, UnityGripHalfLength);
+					}
+					DesiredPos -= palmOffset;
+				}
+			}
 			FVector			DesiredDelta			= DesiredPos - RootPos;
 			FLOAT			DesiredLength			= DesiredDelta.Size();
 
@@ -473,6 +511,25 @@
 			else
 			{
 				OutBoneTransforms[1] = SkelComp.SpaceBases[LowerLimbIndex];
+			}
+
+			if (UnityPreserveAnimatedTwist)
+			{
+				// Rotate the animated segments by the shortest correction. Rebuilding
+				// them from generic X/Y axes loses the imported roll and twists the skin,
+				// especially on the mirrored right arm.
+				var upper = SkelComp.SpaceBases[UpperLimbIndex];
+				upper.SetOrigin(FVector(0f));
+				upper = upper * FQuatRotationTranslationMatrix(FQuatFindBetween(
+					(InitialJointPos - RootPos).SafeNormal(), (OutJointPos - RootPos).SafeNormal()), FVector(0f));
+				upper.SetOrigin(RootPos);
+				OutBoneTransforms[0] = upper;
+				var lower = SkelComp.SpaceBases[LowerLimbIndex];
+				lower.SetOrigin(FVector(0f));
+				lower = lower * FQuatRotationTranslationMatrix(FQuatFindBetween(
+					(InitialEndPos - InitialJointPos).SafeNormal(), (OutEndPos - OutJointPos).SafeNormal()), FVector(0f));
+				lower.SetOrigin(OutJointPos);
+				OutBoneTransforms[1] = lower;
 			}
 
 			// Update transform for end bone.

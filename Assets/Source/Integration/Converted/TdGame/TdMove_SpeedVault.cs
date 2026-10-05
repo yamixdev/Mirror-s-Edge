@@ -516,6 +516,8 @@ public partial class TdMove_SpeedVault : TdPhysicsMove/*
 				}
 				else
 				{
+					if(TryUnityVaultJump())
+						return;
 					if(PawnOwner.Weapon != default)
 					{
 						PawnOwner.SetWeaponAnimState(TdPawn.EWeaponAnimState.WS_Relaxed/*1*/);

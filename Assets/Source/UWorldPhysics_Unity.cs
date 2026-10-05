@@ -29,6 +29,13 @@
 		static RaycastComparer _raycastComparer = new();
 		static BoxCollider _boxForTests;
 
+		static void GrowTraceBuffers()
+		{
+			int capacity = checked(_hitCache.Length * 2);
+			Array.Resize(ref _hitCache, capacity);
+			Array.Resize(ref _sortCache, capacity);
+		}
+
 
 
 		public unsafe FCheckResult* MultiLineCheck( ref int Mem, in FVector End, in FVector Start, in FVector Extent, uint _TraceFlags, Actor SourceActor, LightComponent SourceLight = null )
@@ -46,6 +53,11 @@
 			{
 				center = Start.ToUnityPos();
 				var hits = Physics.RaycastNonAlloc( Start.ToUnityPos(), delta.normalized, _hitCache, totalDistance, -1, includeTrigger );
+				while( hits == _hitCache.Length )
+				{
+					GrowTraceBuffers();
+					hits = Physics.RaycastNonAlloc( Start.ToUnityPos(), delta.normalized, _hitCache, totalDistance, -1, includeTrigger );
+				}
 				Array.Sort(_hitCache, 0, hits, _raycastComparer);
 				var current = root;
 				//foreach( var hit in hits )
@@ -89,6 +101,11 @@
 				UnrealToUnityBox( Start, Extent, out var box );
 
 				var hits = Physics.BoxCastNonAlloc( box.center, box.extent, delta.normalized, _hitCache, Quaternion.identity, totalDistance, -1, includeTrigger );
+				while( hits == _hitCache.Length )
+				{
+					GrowTraceBuffers();
+					hits = Physics.BoxCastNonAlloc( box.center, box.extent, delta.normalized, _hitCache, Quaternion.identity, totalDistance, -1, includeTrigger );
+				}
 
 				// Makes sure hits are sorted
 				// We also need to sort based on how much this box is already penetrating objects at the starting point
@@ -102,9 +119,9 @@
 					if( hit.distance == 0f && hit.point == default )
 					{
 						ComputePenetration( hit.collider, box, out length, out direction );
-						if( Vector3.Dot( direction, -delta.normalized ) < 0f )
+						if( Vector3.Dot( direction, -delta.normalized ) <= 0f )
 						{
-							// Filtering out hits that are within the starting box and are not exactly in the way of the trace
+							// An initial overlap only blocks motion into the surface, not along or away from it.
 							continue;
 						}
 					}
@@ -156,8 +173,8 @@
 					bool penetrating = hit.distance == 0f && hit.point == default;
 					if( penetrating )
 					{
-						// Looks to be this value when looking at the source, I'm not sure to be honest
-						next.Normal = (-delta).normalized.ToUnrealDir();
+						// Use the surface separation direction, not the reverse sweep direction.
+						next.Normal = penData.dir.ToUnrealDir();
 						next.Location = (Start.ToUnityPos() + penData.dir * penData.length).ToUnrealPos();
 						next.bStartPenetrating = true;
 						next.Time = 0f;
@@ -277,10 +294,17 @@
 			// Make a list of all actors which overlap with a cylinder at Location
 			// with the given collision size.
 
-			var includeTrigger = ( (ETraceFlags)TraceFlags & ETraceFlags.TRACE_Volumes ) != default ? QueryTriggerInteraction.Collide : QueryTriggerInteraction.Ignore;
+			bool physicsVolumesOnly = ((ETraceFlags)TraceFlags & ETraceFlags.TRACE_PhysicsVolumes) != default;
+			var includeTrigger = ((ETraceFlags)TraceFlags & (ETraceFlags.TRACE_Volumes | ETraceFlags.TRACE_PhysicsVolumes)) != default
+				? QueryTriggerInteraction.Collide : QueryTriggerInteraction.Ignore;
 
 			UnrealToUnityBox( Location, Extent, out var box );
 			var colliderCount = Physics.OverlapBoxNonAlloc( box.center, box.extent, _colliderCache, Quaternion.identity, -1, includeTrigger );
+			while( colliderCount == _colliderCache.Length )
+			{
+				Array.Resize(ref _colliderCache, checked(_colliderCache.Length * 2));
+				colliderCount = Physics.OverlapBoxNonAlloc( box.center, box.extent, _colliderCache, Quaternion.identity, -1, includeTrigger );
+			}
 			
 			var root = new FCheckResult();
 			var current = root;
@@ -291,8 +315,19 @@
 
 				if( ExtractMappingData( coll, out var component, out var actor ) == false )
 					continue;
+				if(physicsVolumesOnly && actor is not PhysicsVolume)
+					continue;
 
-				if( ComputePenetration( coll, box, out var length, out var direction ) == false )
+				float length = 0f;
+				Vector3 direction = default;
+				if(box.extent == Vector3.zero)
+				{
+					// A zero-size test box has no penetration depth. Volume membership
+					// asks whether the point is inside the actual (possibly rotated) collider.
+					if((coll.ClosestPoint(box.center) - box.center).sqrMagnitude > 1e-10f)
+						continue;
+				}
+				else if( ComputePenetration( coll, box, out length, out direction ) == false )
 					continue;
 
 				var next = new FCheckResult
@@ -451,11 +486,11 @@
 				UnrealToUnityBox( Location, Extent, out var box );
 
 				bool penetrates;
-				/*if( box.extent == default )
+				if( box.extent == default )
 				{
-					penetrates = ( (Collider) unityComp ).ClosestPoint( box.center ) == box.center;
+					penetrates = (((Collider)unityComp).ClosestPoint(box.center) - box.center).sqrMagnitude <= 1e-10f;
 				}
-				else*/
+				else
 				{
 					penetrates = ComputePenetration( (Collider) unityComp, box, out _, out var dir ) || dir != default;
 				}
@@ -541,7 +576,7 @@
 				}
 				actor.CollisionComponent = component;
 				
-				component.BlockActors = actor is not TdSwingVolume;
+				component.BlockActors = !unityColl.isTrigger;
 				_collMappingTable.Add( unityColl, component );
 				_collMappingTable.Add( component, unityColl );
 			}
